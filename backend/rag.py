@@ -6,32 +6,66 @@ load_dotenv()
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langgraph.prebuilt import create_react_agent
+from langgraph.func import entrypoint, task
+from langgraph.graph import add_messages
+from pydantic import BaseModel
 from pypdf import PdfReader
+
+import config
 
 _BASE_DIR = Path(__file__).parent
 
-_embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+_embeddings = OpenAIEmbeddings(model=config.EMBED_MODEL)
 _vectorstore = Chroma(
-    collection_name="pdf_docs",
+    collection_name=config.VECTORSTORE_COLLECTION_NAME,
     embedding_function=_embeddings,
-    persist_directory=str(_BASE_DIR / "chroma_db"),
+    persist_directory=str(_BASE_DIR / config.VECTORSTORE_PERSIST_DIR),
 )
-_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+_splitter = RecursiveCharacterTextSplitter(chunk_size=config.CHUNK_SIZE, chunk_overlap=config.CHUNK_OVERLAP)
 
 
 @tool
 def retrieve_documents(query: str) -> str:
     """Search the knowledge base and return the text of the most relevant document chunks."""
-    docs = _vectorstore.similarity_search(query, k=4)
+    docs = _vectorstore.similarity_search(query, k=config.TOP_K)
     return "\n\n".join(doc.page_content for doc in docs)
 
 
-_llm = ChatOpenAI(model="gpt-4o")
-_agent = create_react_agent(_llm, [retrieve_documents])
+class _Score(BaseModel):
+    score: float
+
+
+_llm = ChatOpenAI(model=config.LLM_MODEL)
+_scorer = _llm.with_structured_output(_Score)
+_tools = [retrieve_documents]
+_tools_by_name = {t.name: t for t in _tools}
+_llm_with_tools = _llm.bind_tools(_tools)
+
+
+@task
+def _call_llm(messages):
+    return _llm_with_tools.invoke(messages)
+
+
+@task
+def _call_tool(tool_call):
+    return _tools_by_name[tool_call["name"]].invoke(tool_call)
+
+
+@entrypoint()
+def _agent(messages):
+    response = _call_llm(messages).result()
+    while True:
+        if not response.tool_calls:
+            break
+        tool_results = [_call_tool(tc).result() for tc in response.tool_calls]
+        messages = add_messages(messages, [response, *tool_results])
+        response = _call_llm(messages).result()
+    return add_messages(messages, response)
 
 
 def ingest(file_path: str) -> None:
@@ -43,8 +77,19 @@ def ingest(file_path: str) -> None:
 
 
 def query(question: str) -> str:
-    result = _agent.invoke({"messages": [{"role": "user", "content": question}]})
-    content = result["messages"][-1].content
+    result = _agent.invoke([HumanMessage(content=question)])
+    content = result[-1].content
     if isinstance(content, list):
-        return " ".join(b.get("text", "") for b in content if b.get("type") == "text")
-    return content or "No answer found."
+        content = " ".join(b.get("text", "") for b in content if b.get("type") == "text")
+    content = content or "No answer found."
+
+    scored: _Score = _scorer.invoke([
+        HumanMessage(content=(
+            f"Question: {question}\n\nAnswer: {content}\n\n"
+            "Rate how well this answer is supported by the retrieved knowledge. "
+            "Return a score between 0.0 (no support) and 1.0 (fully supported)."
+        ))
+    ])
+    if scored.score <= config.CONFIDENCE_THRESHOLD:
+        return f"Answer confidence too low ({scored.score:.2f}). Try rephrasing your question or upload a more relevant document."
+    return content
