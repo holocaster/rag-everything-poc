@@ -35,7 +35,7 @@ async def ingest(file: UploadFile):
 
     contents = await file.read()
     if len(contents) > config.FILE_SIZE_LIMIT:
-        raise HTTPException(status_code=413, detail="File exceeds the 5 MB limit")
+        raise HTTPException(status_code=413, detail=f"File exceeds the {config.FILE_SIZE_LIMIT // (1024 * 1024)} MB limit")
 
     dest = _DATA_DIR / file.filename
     dest.write_bytes(contents)
