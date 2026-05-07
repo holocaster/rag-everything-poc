@@ -7,7 +7,7 @@ RUN npm run build
 
 FROM python:3.12-slim AS backend
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-WORKDIR /app
+WORKDIR /app/backend
 COPY backend/pyproject.toml ./
 RUN uv sync --no-install-project
 COPY backend/ ./

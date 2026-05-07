@@ -1,6 +1,9 @@
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -31,7 +34,9 @@ _splitter = RecursiveCharacterTextSplitter(chunk_size=config.CHUNK_SIZE, chunk_o
 @tool
 def retrieve_documents(query: str) -> str:
     """Search the knowledge base and return the text of the most relevant document chunks."""
+    logger.debug("retrieve: %r", query)
     docs = _vectorstore.similarity_search(query, k=config.TOP_K)
+    logger.debug("retrieved %d docs", len(docs))
     return "\n\n".join(doc.page_content for doc in docs)
 
 
@@ -69,14 +74,19 @@ def _agent(messages):
 
 
 def ingest(file_path: str) -> None:
+    logger.debug("reading pdf: %s", file_path)
     reader = PdfReader(file_path)
     texts = [t for page in reader.pages if (t := page.extract_text())]
     text = "\n".join(texts)
+    logger.debug("pdf pages: %d, chars: %d", len(reader.pages), len(text))
     chunks = _splitter.split_documents([Document(page_content=text, metadata={"source": file_path})])
+    logger.debug("chunks: %d", len(chunks))
     _vectorstore.add_documents(chunks)
+    logger.info("vectorstore updated: %d chunks from %s", len(chunks), file_path)
 
 
 def query(question: str) -> str:
+    logger.debug("running agent")
     result = _agent.invoke([HumanMessage(content=question)])
     content = result[-1].content
     if isinstance(content, list):
@@ -90,6 +100,9 @@ def query(question: str) -> str:
             "Return a score between 0.0 (no support) and 1.0 (fully supported)."
         ))
     ])
+    logger.debug("confidence score: %.2f", scored.score)
     if scored.score <= config.CONFIDENCE_THRESHOLD:
+        logger.warning("low confidence (%.2f), returning fallback", scored.score)
         return f"Answer confidence too low ({scored.score:.2f}). Try rephrasing your question or upload a more relevant document."
+    logger.debug("query done")
     return content
