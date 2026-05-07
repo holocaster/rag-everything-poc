@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import config
 import rag
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -29,11 +30,11 @@ class QueryRequest(BaseModel):
 
 @app.post("/ingest")
 async def ingest(file: UploadFile):
-    if not (file.filename or "").lower().endswith(".pdf"):
+    if not (file.filename or "").lower().endswith(config.ACCEPTED_FILE_TYPES):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
     contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:
+    if len(contents) > config.FILE_SIZE_LIMIT:
         raise HTTPException(status_code=413, detail="File exceeds the 5 MB limit")
 
     dest = _DATA_DIR / file.filename
