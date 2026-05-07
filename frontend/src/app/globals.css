@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --c-bg: #0a0b0e;
+  --c-surface: #12141a;
+  --c-border: #2a2d38;
+  --c-text: #e8e4db;
+  --c-muted: #6b6878;
+  --c-accent: #c9a86c;
+  --c-accent-dim: rgba(201, 168, 108, 0.09);
+  --c-success: #5a8a6a;
+  --c-error: #c46060;
+}
+
+@theme inline {
+  --font-display: var(--font-playfair);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jetbrains);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--c-bg);
+  color: var(--c-text);
+}
+
+/* Radial atmosphere glow from top */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 100% 55% at 50% -5%,
+    rgba(201, 168, 108, 0.055) 0%,
+    transparent 65%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-up {
+  animation: fadeUp 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+textarea::placeholder {
+  color: var(--c-muted);
+}
